@@ -3233,7 +3233,8 @@ def commit_restore(id, msg):
 
         run_command("git commit -m '{}'".format(msg))
 
-        reload(cfg_file, False, False, False)
+        __do_reload(cfg_file, False, False, False)
+
     else:
         click.echo("No commits yet")
 
