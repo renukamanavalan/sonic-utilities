@@ -36,6 +36,8 @@ SYSTEMCTL_ACTION_STOP="stop"
 SYSTEMCTL_ACTION_RESTART="restart"
 SYSTEMCTL_ACTION_RESET_FAILED="reset-failed"
 
+GIT_REPO = "/etc/sonic/config_repo"
+
 DEFAULT_NAMESPACE = ''
 
 # Global logger instance
@@ -745,12 +747,7 @@ def load(filename, yes):
         run_command(command, display_cmd=True)
 
 
-@config.command()
-@click.option('-y', '--yes', is_flag=True)
-@click.option('-l', '--load-sysinfo', is_flag=True, help='load system default information (mac, portmap etc) first.')
-@click.option('-n', '--no_service_restart', default=False, is_flag=True, help='Do not restart docker services')
-@click.argument('filename', required=False)
-def reload(filename, yes, load_sysinfo, no_service_restart):
+def __do_reload(filename, yes, load_sysinfo, no_service_restart):
     """Clear current configuration and import a previous saved config DB dump file.
        <filename> : Names of configuration file(s) to load, separated by comma with no spaces in between
     """
@@ -868,6 +865,16 @@ def reload(filename, yes, load_sysinfo, no_service_restart):
         _reset_failed_services()
         log.log_info("'reload' restarting services...")
         _restart_services()
+
+
+@config.command()
+@click.option('-y', '--yes', is_flag=True)
+@click.option('-l', '--load-sysinfo', is_flag=True, help='load system default information (mac, portmap etc) first.')
+@click.option('-n', '--no_service_restart', default=False, is_flag=True, help='Do not restart docker services')
+@click.argument('filename', required=False)
+def reload(filename, yes, load_sysinfo, no_service_restart):
+    __do_reload(filename, yes, load_sysinfo, no_service_restart)
+
 
 @config.command("load_mgmt_config")
 @click.option('-y', '--yes', is_flag=True, callback=_abort_if_false,
@@ -3157,6 +3164,78 @@ def feature_autorestart(name, autorestart):
         sys.exit(1)
 
     config_db.mod_entry('FEATURE', name, {'auto_restart': autorestart})
+
+#
+# 'commit' group ('config commit ...')
+#
+@config.group(cls=AbbreviationGroup, name='commit')
+@click.pass_context
+def commit_group(ctx):
+    """git repo tasks"""
+    pass
+
+@commit_group.command('list')
+def commit_list():
+    """ List all commits """
+    if os.path.exists(os.path.join(GIT_REPO, ".git")):
+        os.chdir(GIT_REPO)
+        run_command("git log --graph --decorate --all --oneline")
+    else:
+        click.echo("No commits yet")
+
+
+@commit_group.command('save_current')
+@click.argument('msg', metavar='<commit-msg>', required=True)
+def commit_save(msg):
+    """ Save current running config """
+
+    if not os.path.exists(GIT_REPO):
+        try:
+            os.mkdir(GIT_REPO)
+        except OSError:
+            print ("Creation of the directory %s failed" % GIT_REPO)
+            sys.exit(1)
+    
+    os.chdir(GIT_REPO)
+
+    if not os.path.exists(os.path.join(GIT_REPO, ".git")):
+        run_command("git init")
+        run_command("git config user.email sonic_dev@microsoft.com")
+        run_command("git config user.name sonic_dev")
+         
+    cfg_file = os.path.join(GIT_REPO, "config_db.json")
+    cmd = "/usr/local/bin/sonic-cfggen -d --print-data > {}".format(cfg_file)
+
+    run_command(cmd)
+
+    run_command("git add {}".format(cfg_file))
+
+    run_command("git commit -m '{}'".format(msg))
+
+    run_command("git log --graph --decorate --all --oneline -n 1")
+
+
+@commit_group.command('restore_commit')
+@click.argument('id', metavar='<commit-id>', required=True)
+@click.argument('msg', metavar='<commit-msg>', required=True)
+def commit_restore(id, msg):
+    """ restore config from specified commit """
+
+    if os.path.exists(os.path.join(GIT_REPO, ".git")):
+        os.chdir(GIT_REPO)
+
+        cfg_file = os.path.join(GIT_REPO, "config_db.json")
+
+        # Ensure, we are in clean state
+        run_command("git reset --hard HEAD")
+
+        run_command("git checkout -f {} -- .".format(id))
+
+        run_command("git commit -m '{}'".format(msg))
+
+        reload(cfg_file, False, False, False)
+    else:
+        click.echo("No commits yet")
 
 if __name__ == '__main__':
     config()

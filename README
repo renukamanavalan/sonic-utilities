@@ -1,0 +1,16 @@
+1) Do a git install in SONiC
+    sudo apt-get update
+    sudo apt-get install git
+    
+
+2) under "/etc/sonic/config_repo"
+    mkdir /etc/sonic/config_repo
+    git init
+    git config user.email sonicdev@microsoft.com
+    git config user.name sonicdev
+
+3) To add/commit
+    git add <file>
+    git commit
+    This is done by 'sudo config commit ...' commands
+    refer /usr/lib/python2.7/dist-packages/config/main.py
